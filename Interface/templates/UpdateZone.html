@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Upload</title>
+    <script src="https://unpkg.com/htmx.org"></script>
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.1.3/dist/js/bootstrap.min.js" integrity="sha384-ChfqqxuZUCnJSK3+MXmPNIyE6ZbWh2IMqE241rYiqJxyMiZ6OW/JmZQ5stwEULTy" crossorigin="anonymous"></script>
+
+    <script src="https://docs.opencv.org/master/opencv.js" type="text/javascript"></script>
+</head>
+<body>
+    <h2>Update Zone {zonename}</h2>
+
+    <video id="videoInput" playsinline autoplay hidden></video>
+    <div class="container">
+        <div class="row">
+            <canvas id="canvasOutput" onclick="canvasClickListener(event)" style="width:100%;height:70vh"></canvas>
+            <input type="button" id="CaptureZone" name="CaptureZone" value="Capture Image" onclick="takeStill()">
+            <input type="button" id="Camera" name="Camera" value="Reject Image" onclick="cameraView()" hidden>
+        </div>
+        <div class="row">
+            <input type="text" name="az" id="ActiveZone" value={activezone} size="50" hidden>   
+            <input type="button" name="clearAZ" value="Clear AZ" onclick="clearAZ(event)">
+        </div>
+        <div class="row">
+            <input type="button" id="UpdateZone" name="UpdateZone" value="Update Zone" onclick="UpdateZone()" hidden>
+        </div>
+    </div>
+    <canvas id="captureCanvas"></canvas>
+
+    <script type="text/javascript">
+        let video = document.getElementById('videoInput');
+        let canvas = document.getElementById('canvasOutput');
+        let activeZoneField = document.getElementById("ActiveZone");
+        let context = canvas.getContext('2d', { willReadFrequently: true });
+        let captureCanvas = document.getElementById('captureCanvas');
+        let captureContext = captureCanvas.getContext('2d');
+        let lastCapture = null;
+        let src = null;
+        let contour = null;
+
+        function takeStill() {
+            captureContext.drawImage(video, 0, 0, canvas.width, canvas.height);
+            lastCapture = cv.matFromImageData(captureContext.getImageData(0, 0, canvas.width, canvas.height));
+            cv.polylines(lastCapture, contour, true, [0, 255, 0, 255], 3, cv.LINE_8, 0);
+            const takeCaptureButton = document.getElementById("CaptureZone")
+            takeCaptureButton.hidden = true;
+            const cameraButton = document.getElementById("Camera")
+            cameraButton.hidden = false;
+        }
+
+        function cameraView() {
+            lastCapture.delete();
+            lastCapture = null;
+            const takeCaptureButton = document.getElementById("CaptureZone")
+            takeCaptureButton.hidden = false;
+            const cameraButton = document.getElementById("Camera")
+            cameraButton.hidden = true;
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            let cap;
+    
+            let imgElement = new Image();
+            imgElement.src = 'data:image/jpg;{zoneimage}'
+        
+            // Function to be called when OpenCV.js is loaded
+            function onOpenCvReady() {
+                cap = new cv.VideoCapture(video);
+        
+                // Access the webcam
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: "environment" },
+                        audio: false }).then(function(stream) {
+                            video.srcObject = stream;
+                            video.play();
+                            setInterval(captureFrame, 10);
+                        })
+                        .catch(function(error) {
+                            console.log("Error accessing the webcam:", error);
+                        });
+                } else {
+                    console.log("getUserMedia not supported in this browser.");
+                }
+            }
+        
+            // Function to capture a frame, draw a circle, and display it
+            function captureFrame() {
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                let dst = new cv.Mat(video.height, video.width, cv.CV_8UC4);
+                let src2 = cv.imread(imgElement);
+                
+                if (lastCapture === null) {
+                    src = cv.matFromImageData(context.getImageData(0, 0, canvas.width, canvas.height));
+                    document.getElementById("UpdateZone").hidden = true;
+                } else {
+                    document.getElementById("UpdateZone").hidden = false;
+                    src = new cv.Mat();
+                    lastCapture.copyTo(src);
+                    cv.imshow('captureCanvas', lastCapture);
+                }
+
+                // Resize src2 to match video frame size
+                let dsize = new cv.Size(src.cols, src.rows);
+                cv.resize(src2, src2, dsize, 0, 0, cv.INTER_AREA);
+
+                let alpha = 0.7;
+                let beta = (1.0 - alpha);
+                cv.addWeighted(src, alpha, src2, beta, 0.0, dst);
+
+                const activeZone = JSON.parse(document.getElementById('ActiveZone').value);
+                const convertedPoints = activeZone.map(coord => new cv.Point(coord[0] * canvas.width, coord[1] * canvas.height));
+                contour = new cv.MatVector();
+                let poly = new cv.Mat(convertedPoints.length, 1, cv.CV_32SC2);
+                for (let i = 0; i < convertedPoints.length; ++i) {
+                    poly.intPtr(i, 0)[0] = convertedPoints[i].x;
+                    poly.intPtr(i, 0)[1] = convertedPoints[i].y;
+                }
+                contour.push_back(poly);
+                cv.polylines(dst, contour, true, [0, 255, 0, 255], 3, cv.LINE_8, 0);
+            
+                // Display the image
+                cv.imshow('canvasOutput', dst);
+        
+                // Clean up
+                src.delete(); src2.delete(); dst.delete();
+            }
+        
+            // Check if OpenCV.js is readyg
+            if (cv.getBuildInformation) {
+                onOpenCvReady();
+            } else {
+                cv['onRuntimeInitialized'] = onOpenCvReady;
+            }
+        });
+            
+        function clearAZ( event) {
+            const formField = document.getElementById(`ActiveZone`)
+            formField.value = '[]'
+        }
+
+        function UpdateZone() {
+            let dataToSend = JSON.stringify({
+                name: "{zonename}",
+                image: captureCanvas.toDataURL('image/jpg'),
+                activeZone: activeZoneField.value
+            });
+            let xhr = new XMLHttpRequest();
+            xhr.open('POST', '/updatezone/{zonename}', true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.send(dataToSend);
+            setTimeout(function() {
+                window.location.href = "/"
+            }, 1000);
+        }
+
+        function canvasClickListener(event) {
+            const imgElem = document.getElementById(`canvasOutput`)
+            const bounds=imgElem.getBoundingClientRect();
+            const left=bounds.left;
+            const top=bounds.top;
+            const x = event.x - left;
+            const y = event.y - top;
+            const cw=imgElem.clientWidth
+            const ch=imgElem.clientHeight
+            const iw=imgElem.width
+            const ih=imgElem.height
+            const px=(x/cw)
+            const py=(y/ch)
+            const x_offset = 0
+            const x_scale = 1
+            const image_x = (px - x_offset) * x_scale
+            const y_offset = 0
+            const y_scale = 1
+            const image_y = (py - y_offset) * y_scale
+            const formField = document.getElementById(`ActiveZone`)
+            var formValue
+            try {
+              formValue = JSON.parse(formField.value)
+            }
+            catch(err) {
+              formValue = []
+            }
+            formValue.push([image_x, image_y])
+            formField.value = JSON.stringify(formValue)
+            formField.dispatchEvent(new Event('change'));
+        }
+    </script>
+</body>
+</html>
