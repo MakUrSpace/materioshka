@@ -1,5 +1,4 @@
-Flask
-aws-wsgi
+boto3
 torch
 torchvision
 aws-cdk-lib
