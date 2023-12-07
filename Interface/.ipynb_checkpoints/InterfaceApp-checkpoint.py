@@ -42,9 +42,7 @@ def update(zonename):
     if request.method == "POST":
         zoneData = request.get_json()
         zoneData['name'] = zonename
-        # Pull active zone into separate image
         ZONES[zonename] = zoneData
-        # Call SAM on zone
         with open("zones.json", "w") as f:
             f.write(json.dumps(ZONES))
         return "Success"
