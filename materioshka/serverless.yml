@@ -1,0 +1,57 @@
+service: materioshka
+
+frameworkVersion: '3'
+
+custom:
+  tableName: 'materioshka-table-${sls:stage}'
+
+provider:
+  name: aws
+  runtime: python3.10
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource:
+            - Fn::GetAtt: [ MaterioshkaTable, Arn ]
+  environment:
+    MATERIOSHKA_TABLE: ${self:custom.tableName}
+  ecr:
+    images:
+      materioshkaimage:
+        path: ./
+
+functions:
+  api:
+    image:
+      name: materioshkaimage
+    events:
+      - httpApi: '*'
+
+plugins:
+  - serverless-python-requirements
+
+resources:
+  Resources:
+    MaterioshkaTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: attribute
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+          - AttributeName: attribute
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+        TableName: ${self:custom.tableName}
